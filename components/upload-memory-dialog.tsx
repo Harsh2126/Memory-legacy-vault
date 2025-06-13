@@ -45,7 +45,7 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
   const { toast } = useToast()
   const { user } = useAuth()
 
-  const requiresApproval = vault.settings?.requireApproval ?? false
+  const requiresApproval = vault?.settings?.requireApproval ?? false
   const isAdmin = vault.members.some((m) => m.userId === user?.id && m.role === "admin")
 
   const handleTabChange = (value: string) => {
@@ -166,9 +166,9 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
       // In a real app, you would upload the file to a storage service
       // For now, we'll use the object URL as the media URL
 
-      // Create a new memory
+      // Create a new memory with a unique ID to prevent duplication
       const newMemory: Memory = {
-        id: `memory_${Date.now()}`,
+        id: `memory_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         vaultId,
         title: title || selectedFile.name,
         description,
@@ -225,76 +225,100 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh]">
+      <DialogContent className="max-w-[95vw] sm:max-w-lg md:max-w-2xl max-h-[95vh] sm:max-h-[90vh] p-4 sm:p-6">
         <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Upload a Memory</DialogTitle>
-            <DialogDescription>Add a new memory to your family vault.</DialogDescription>
+          <DialogHeader className="space-y-1 sm:space-y-2">
+            <DialogTitle className="text-lg sm:text-xl">Upload a Memory</DialogTitle>
+            <DialogDescription className="text-sm">Add a new memory to your family vault.</DialogDescription>
           </DialogHeader>
 
-          <div className="overflow-y-auto max-h-[60vh] pr-1 my-4">
+          <div className="overflow-y-auto max-h-[50vh] sm:max-h-[60vh] pr-1 my-2 sm:my-4">
             {requiresApproval && !isAdmin && (
-              <Alert className="mt-4">
-                <AlertCircle className="h-4 w-4" />
+              <Alert className="mt-2 sm:mt-4 text-sm">
+                <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4" />
                 <AlertTitle>Approval Required</AlertTitle>
-                <AlertDescription>
+                <AlertDescription className="text-xs sm:text-sm">
                   This vault requires admin approval for all uploads. Your memory will be reviewed before becoming
                   visible to other members.
                 </AlertDescription>
               </Alert>
             )}
 
-            <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-4">
-              <TabsList className="grid grid-cols-3">
-                <TabsTrigger value="image" className="flex items-center gap-2">
-                  <ImageIcon className="h-4 w-4" />
-                  <span>Photo</span>
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-2 sm:mt-4">
+              <TabsList className="grid grid-cols-3 h-auto">
+                <TabsTrigger
+                  value="image"
+                  className="flex items-center gap-1 sm:gap-2 py-1.5 sm:py-2 text-xs sm:text-sm"
+                >
+                  <ImageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">Photo</span>
                 </TabsTrigger>
-                <TabsTrigger value="audio" className="flex items-center gap-2">
-                  <Mic className="h-4 w-4" />
-                  <span>Audio</span>
+                <TabsTrigger
+                  value="audio"
+                  className="flex items-center gap-1 sm:gap-2 py-1.5 sm:py-2 text-xs sm:text-sm"
+                >
+                  <Mic className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">Audio</span>
                 </TabsTrigger>
-                <TabsTrigger value="video" className="flex items-center gap-2">
-                  <Video className="h-4 w-4" />
-                  <span>Video</span>
+                <TabsTrigger
+                  value="video"
+                  className="flex items-center gap-1 sm:gap-2 py-1.5 sm:py-2 text-xs sm:text-sm"
+                >
+                  <Video className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">Video</span>
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="image" className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="image-file">Upload Photo</Label>
-                  <Input id="image-file" type="file" accept="image/*" onChange={handleFileChange} />
+              <TabsContent value="image" className="space-y-3 sm:space-y-4 py-3 sm:py-4">
+                <div className="space-y-1 sm:space-y-2">
+                  <Label htmlFor="image-file" className="text-sm">
+                    Upload Photo
+                  </Label>
+                  <Input
+                    id="image-file"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="text-sm file:text-sm file:py-1 file:px-2"
+                  />
                 </div>
 
                 {previewUrl && (
-                  <div className="mt-4 aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center max-h-[200px]">
+                  <div className="mt-2 sm:mt-4 aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center max-h-[150px] sm:max-h-[200px]">
                     <img src={previewUrl || "/placeholder.svg"} alt="Preview" className="max-h-full object-contain" />
                   </div>
                 )}
               </TabsContent>
 
-              <TabsContent value="audio" className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Audio Recording</Label>
-                  <div className="flex flex-col gap-4 items-center">
+              <TabsContent value="audio" className="space-y-3 sm:space-y-4 py-3 sm:py-4">
+                <div className="space-y-1 sm:space-y-2">
+                  <Label className="text-sm">Audio Recording</Label>
+                  <div className="flex flex-col gap-2 sm:gap-4 items-center">
                     {!previewUrl ? (
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 sm:gap-4">
                         {!isRecording ? (
                           <Button
                             type="button"
                             onClick={() => startRecording("audio")}
                             variant="outline"
-                            className="flex items-center gap-2"
+                            size="sm"
+                            className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9"
                           >
-                            <Mic className="h-4 w-4" />
+                            <Mic className="h-3 w-3 sm:h-4 sm:w-4" />
                             Start Recording
                           </Button>
                         ) : (
                           <>
-                            <div className="text-rose-500 animate-pulse">
+                            <div className="text-rose-500 animate-pulse text-xs sm:text-sm">
                               ● Recording: {formatRecordingTime(recordingTime)}
                             </div>
-                            <Button type="button" onClick={stopRecording} variant="outline">
+                            <Button
+                              type="button"
+                              onClick={stopRecording}
+                              variant="outline"
+                              size="sm"
+                              className="text-xs sm:text-sm h-8 sm:h-9"
+                            >
                               Stop
                             </Button>
                           </>
@@ -302,7 +326,7 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                       </div>
                     ) : (
                       <div className="w-full">
-                        <audio src={previewUrl} controls className="w-full" />
+                        <audio src={previewUrl} controls className="w-full h-10 sm:h-12" />
                         <Button
                           type="button"
                           onClick={() => {
@@ -310,7 +334,8 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                             setSelectedFile(null)
                           }}
                           variant="outline"
-                          className="mt-2"
+                          size="sm"
+                          className="mt-2 text-xs sm:text-sm h-8 sm:h-9"
                         >
                           Discard & Re-record
                         </Button>
@@ -319,34 +344,49 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="audio-file">Or Upload Audio File</Label>
-                  <Input id="audio-file" type="file" accept="audio/*" onChange={handleFileChange} />
+                <div className="space-y-1 sm:space-y-2">
+                  <Label htmlFor="audio-file" className="text-sm">
+                    Or Upload Audio File
+                  </Label>
+                  <Input
+                    id="audio-file"
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleFileChange}
+                    className="text-sm file:text-sm file:py-1 file:px-2"
+                  />
                 </div>
               </TabsContent>
 
-              <TabsContent value="video" className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Video Recording</Label>
-                  <div className="flex flex-col gap-4 items-center">
+              <TabsContent value="video" className="space-y-3 sm:space-y-4 py-3 sm:py-4">
+                <div className="space-y-1 sm:space-y-2">
+                  <Label className="text-sm">Video Recording</Label>
+                  <div className="flex flex-col gap-2 sm:gap-4 items-center">
                     {!previewUrl ? (
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 sm:gap-4">
                         {!isRecording ? (
                           <Button
                             type="button"
                             onClick={() => startRecording("video")}
                             variant="outline"
-                            className="flex items-center gap-2"
+                            size="sm"
+                            className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9"
                           >
-                            <Video className="h-4 w-4" />
+                            <Video className="h-3 w-3 sm:h-4 sm:w-4" />
                             Start Recording
                           </Button>
                         ) : (
                           <>
-                            <div className="text-rose-500 animate-pulse">
+                            <div className="text-rose-500 animate-pulse text-xs sm:text-sm">
                               ● Recording: {formatRecordingTime(recordingTime)}
                             </div>
-                            <Button type="button" onClick={stopRecording} variant="outline">
+                            <Button
+                              type="button"
+                              onClick={stopRecording}
+                              variant="outline"
+                              size="sm"
+                              className="text-xs sm:text-sm h-8 sm:h-9"
+                            >
                               Stop
                             </Button>
                           </>
@@ -354,7 +394,7 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                       </div>
                     ) : (
                       <div className="w-full">
-                        <video src={previewUrl} controls className="w-full max-h-[200px]" />
+                        <video src={previewUrl} controls className="w-full max-h-[150px] sm:max-h-[200px]" />
                         <Button
                           type="button"
                           onClick={() => {
@@ -362,7 +402,8 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                             setSelectedFile(null)
                           }}
                           variant="outline"
-                          className="mt-2"
+                          size="sm"
+                          className="mt-2 text-xs sm:text-sm h-8 sm:h-9"
                         >
                           Discard & Re-record
                         </Button>
@@ -371,16 +412,26 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="video-file">Or Upload Video File</Label>
-                  <Input id="video-file" type="file" accept="video/*" onChange={handleFileChange} />
+                <div className="space-y-1 sm:space-y-2">
+                  <Label htmlFor="video-file" className="text-sm">
+                    Or Upload Video File
+                  </Label>
+                  <Input
+                    id="video-file"
+                    type="file"
+                    accept="video/*"
+                    onChange={handleFileChange}
+                    className="text-sm file:text-sm file:py-1 file:px-2"
+                  />
                 </div>
               </TabsContent>
             </Tabs>
 
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Title</Label>
+            <div className="grid gap-3 sm:gap-4 py-3 sm:py-4">
+              <div className="space-y-1 sm:space-y-2">
+                <Label htmlFor="title" className="text-sm">
+                  Title
+                </Label>
                 <Input
                   id="title"
                   placeholder={`e.g., ${
@@ -392,26 +443,39 @@ export default function UploadMemoryDialog({ vaultId, vault, open, onOpenChange,
                   }`}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
+                  className="text-sm h-8 sm:h-9"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+              <div className="space-y-1 sm:space-y-2">
+                <Label htmlFor="description" className="text-sm">
+                  Description
+                </Label>
                 <Textarea
                   id="description"
                   placeholder="Tell the story behind this memory..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
+                  className="text-sm min-h-[60px] sm:min-h-[80px]"
                 />
               </div>
             </div>
           </div>
 
-          <DialogFooter className="mt-4 pt-2 border-t bg-background">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogFooter className="mt-2 sm:mt-4 pt-2 border-t bg-background flex flex-col sm:flex-row gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="w-full sm:w-auto text-xs sm:text-sm h-8 sm:h-9"
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isUploading || !selectedFile}>
+            <Button
+              type="submit"
+              disabled={isUploading || !selectedFile}
+              className="w-full sm:w-auto text-xs sm:text-sm h-8 sm:h-9"
+            >
               {isUploading ? "Uploading..." : requiresApproval && !isAdmin ? "Submit for Approval" : "Upload"}
             </Button>
           </DialogFooter>

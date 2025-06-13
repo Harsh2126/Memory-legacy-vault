@@ -1,7 +1,13 @@
+import type { Permission } from "./rbac/types"
+
 export type User = {
   id: string
   name: string
   email: string
+  profilePicture?: string | null
+  provider?: string
+  roles: string[] // Role IDs
+  permissions?: Permission[] // Cached permissions
 }
 
 export type Vault = {

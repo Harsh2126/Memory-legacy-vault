@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Heart } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { useToast } from "@/components/ui/use-toast"
+import SocialLoginButtons from "@/components/social-login-buttons"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -81,6 +82,18 @@ export default function LoginPage() {
                 {isLoading ? "Logging in..." : "Log in"}
               </Button>
             </form>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+              </div>
+            </div>
+
+            <SocialLoginButtons mode="login" />
+
             <div className="text-center text-sm">
               Don&apos;t have an account?{" "}
               <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">

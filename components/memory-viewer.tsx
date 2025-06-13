@@ -3,7 +3,7 @@
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import type { Memory } from "@/lib/types"
 import MemoryComments from "./memory-comments"
 import MediaPlayer from "./media-player"
@@ -13,22 +13,31 @@ interface MemoryViewerProps {
   onClose: () => void
   memory: Memory | null
   memories: Memory[]
+  onDelete?: (id: string) => void
+  canDelete?: boolean
 }
 
-export default function MemoryViewer({ isOpen, onClose, memory, memories }: MemoryViewerProps) {
+export default function MemoryViewer({
+  isOpen,
+  onClose,
+  memory,
+  memories,
+  onDelete,
+  canDelete = false,
+}: MemoryViewerProps) {
   const [currentIndex, setCurrentIndex] = useState(() => {
     if (!memory) return 0
     return memories.findIndex((m) => m.id === memory.id)
   })
 
   // Update index when memory changes
-  useState(() => {
+  useEffect(() => {
     if (!memory) return
     const index = memories.findIndex((m) => m.id === memory.id)
     if (index !== -1) {
       setCurrentIndex(index)
     }
-  })
+  }, [memory, memories])
 
   const currentMemory = memories[currentIndex]
 

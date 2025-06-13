@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,15 +13,18 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import DashboardHeader from "@/components/dashboard-header"
 import { useAuth } from "@/components/auth-provider"
 import { useToast } from "@/components/ui/use-toast"
+import { Camera } from "lucide-react"
 
 export default function CreateVaultPage() {
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [theme, setTheme] = useState("rose")
+  const [coverImage, setCoverImage] = useState<string>("/placeholder.svg?height=400&width=600")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,7 +38,7 @@ export default function CreateVaultPage() {
         name,
         description,
         theme,
-        coverImage: "/placeholder.svg?height=400&width=600",
+        coverImage,
         createdAt: new Date().toISOString(),
         createdBy: user?.id || "",
         members: [
@@ -76,6 +79,25 @@ export default function CreateVaultPage() {
     }
   }
 
+  const handleCoverImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      const reader = new FileReader()
+
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setCoverImage(event.target.result as string)
+        }
+      }
+
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click()
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <DashboardHeader />
@@ -109,6 +131,38 @@ export default function CreateVaultPage() {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Cover Photo</Label>
+                  <div className="relative aspect-[3/1] overflow-hidden rounded-md bg-muted">
+                    <img
+                      src={coverImage || "/placeholder.svg"}
+                      alt="Vault cover"
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={triggerFileInput}
+                        className="flex items-center gap-1"
+                      >
+                        <Camera className="h-4 w-4" />
+                        Choose Cover Photo
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recommended size: 1200×400 pixels. Max file size: 5MB.
+                  </p>
+                  <Input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCoverImageChange}
+                    className="hidden"
                   />
                 </div>
 

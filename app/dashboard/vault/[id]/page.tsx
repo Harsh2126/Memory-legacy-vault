@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Upload, Grid, Calendar, ImageIcon, Mic, Video, AlertCircle } from "lucide-react"
+import { Plus, Upload, Grid, Calendar, ImageIcon, Mic, Video, AlertCircle, Trash2, Play } from "lucide-react"
 import DashboardHeader from "@/components/dashboard-header"
 import { useAuth } from "@/components/auth-provider"
 import { mockVaults, mockMemories } from "@/lib/data"
@@ -16,16 +16,20 @@ import MemoryViewer from "@/components/memory-viewer"
 import ActivityFeed from "@/components/activity-feed"
 import UploadMemoryDialog from "@/components/upload-memory-dialog"
 import { Badge } from "@/components/ui/badge"
-import { Play } from "lucide-react"
 import PendingMemoriesPanel from "@/components/pending-memories-panel"
 import RejectedMemoriesPanel from "@/components/rejected-memories-panel"
 import VaultSettings from "@/components/vault-settings"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import PermissionGuard from "@/components/permission-guard"
+import { useRBAC } from "@/components/rbac-provider"
+import DeleteVaultDialog from "@/components/delete-vault-dialog"
+import { SampleContentGallery } from "@/components/sample-content-gallery"
 
 export default function VaultPage() {
   const { id } = useParams()
   const vaultId = Array.isArray(id) ? id[0] : id
-  const { user, isLoading } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
+  const { hasPermission } = useRBAC()
   const router = useRouter()
   const { toast } = useToast()
   const { setActiveVaultId, notifyMemoryUploaded, notifyMemoryDeleted, notifyVaultUpdated } = useRealtime()
@@ -33,11 +37,15 @@ export default function VaultPage() {
   const [vault, setVault] = useState<Vault | null>(null)
   const [memories, setMemories] = useState<Memory[]>([])
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid")
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
   const [viewerOpen, setViewerOpen] = useState(false)
   const [filterType, setFilterType] = useState<"all" | "image" | "audio" | "video">("all")
   const [filterStatus, setFilterStatus] = useState<"all" | "approved" | "pending" | "rejected">("approved")
+  const [isLoading, setIsLoading] = useState(true)
+  // Flag to track if we're handling a memory upload to prevent duplication
+  const [isHandlingUpload, setIsHandlingUpload] = useState(false)
 
   // Check if user is an admin
   const isAdmin = vault?.members.some((m) => m.userId === user?.id && m.role === "admin") || false
@@ -55,13 +63,15 @@ export default function VaultPage() {
 
   useEffect(() => {
     // If not loading and no user, redirect to login
-    if (!isLoading && !user) {
+    if (!authLoading && !user) {
       router.push("/login")
       return
     }
 
     // Fetch vault and memories (using mock data and localStorage)
     if (user && vaultId) {
+      setIsLoading(true)
+
       // Check mock vaults first
       let foundVault = mockVaults.find((v) => v.id === vaultId)
       let foundMemories = mockMemories[vaultId] || []
@@ -96,15 +106,25 @@ export default function VaultPage() {
         // Vault not found
         router.push("/dashboard")
       }
+
+      setIsLoading(false)
     }
 
     // Set up event listeners for real-time memory updates
     const handleMemoryUploaded = (event: CustomEvent<Memory>) => {
       const memory = event.detail
 
-      // Only update if it's for this vault
-      if (memory.vaultId === vaultId) {
-        setMemories((prev) => [memory, ...prev])
+      // Only update if it's for this vault and we're not currently handling an upload
+      // This prevents duplication when the current user is the one uploading
+      if (memory.vaultId === vaultId && !isHandlingUpload) {
+        setMemories((prev) => {
+          // Check if this memory already exists to prevent duplication
+          const exists = prev.some((m) => m.id === memory.id)
+          if (exists) {
+            return prev
+          }
+          return [memory, ...prev]
+        })
       }
     }
 
@@ -137,18 +157,34 @@ export default function VaultPage() {
       window.removeEventListener("memory-deleted", handleMemoryDeleted as EventListener)
       window.removeEventListener("vault-updated", handleVaultUpdated as EventListener)
     }
-  }, [user, isLoading, vaultId, router])
+  }, [user, authLoading, vaultId, router, isHandlingUpload])
 
   const handleUpload = (newMemory: Memory) => {
-    // Add the new memory to the list
-    const updatedMemories = [newMemory, ...memories]
-    setMemories(updatedMemories)
+    try {
+      // Set flag to prevent duplication from event listeners
+      setIsHandlingUpload(true)
 
-    // Save to localStorage
-    localStorage.setItem(`memories_${vaultId}`, JSON.stringify(updatedMemories))
+      // Check if this memory already exists to prevent duplication
+      const exists = memories.some((m) => m.id === newMemory.id)
+      if (exists) {
+        return
+      }
 
-    // Notify other users about the new memory
-    notifyMemoryUploaded(newMemory)
+      // Add the new memory to the list
+      const updatedMemories = [newMemory, ...memories]
+      setMemories(updatedMemories)
+
+      // Save to localStorage
+      localStorage.setItem(`memories_${vaultId}`, JSON.stringify(updatedMemories))
+
+      // Notify other users about the new memory
+      notifyMemoryUploaded(newMemory)
+    } finally {
+      // Reset flag after a short delay to ensure event handling is complete
+      setTimeout(() => {
+        setIsHandlingUpload(false)
+      }, 500)
+    }
   }
 
   const handleDeleteMemory = async (memoryId: string) => {
@@ -171,6 +207,32 @@ export default function VaultPage() {
       toast({
         title: "Delete failed",
         description: "There was a problem deleting the memory. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDeleteVault = async () => {
+    try {
+      // Remove the vault from localStorage
+      const userVaults = JSON.parse(localStorage.getItem("userVaults") || "[]")
+      const updatedVaults = userVaults.filter((v: Vault) => v.id !== vaultId)
+      localStorage.setItem("userVaults", JSON.stringify(updatedVaults))
+
+      // Remove memories associated with this vault
+      localStorage.removeItem(`memories_${vaultId}`)
+
+      toast({
+        title: "Vault deleted",
+        description: "The vault has been permanently deleted.",
+      })
+
+      // Redirect to dashboard
+      router.push("/dashboard")
+    } catch (error) {
+      toast({
+        title: "Delete failed",
+        description: "There was a problem deleting the vault. Please try again.",
         variant: "destructive",
       })
     }
@@ -254,7 +316,7 @@ export default function VaultPage() {
     const statusMatch = filterStatus === "all" || memory.approvalStatus === filterStatus
 
     // For non-admins, only show approved memories
-    if (!isAdmin && memory.approvalStatus !== "approved") {
+    if (!hasPermission("memory:approve") && memory.approvalStatus !== "approved") {
       return false
     }
 
@@ -262,7 +324,9 @@ export default function VaultPage() {
   })
 
   // Get pending memories (for admin)
-  const pendingMemories = isAdmin ? memories.filter((memory) => memory.approvalStatus === "pending") : []
+  const pendingMemories = hasPermission("memory:approve")
+    ? memories.filter((memory) => memory.approvalStatus === "pending")
+    : []
 
   // Get rejected memories (for the current user)
   const rejectedMemories = memories.filter(
@@ -300,12 +364,29 @@ export default function VaultPage() {
       <DashboardHeader />
       <main className="flex-1 overflow-y-auto">
         <div className="relative h-48 md:h-64 bg-muted overflow-hidden">
-          <img src={vault.coverImage || "/placeholder.svg"} alt={vault.name} className="w-full h-full object-cover" />
+          <img
+            src={vault.coverImage || "/placeholder.svg?height=400&width=600"}
+            alt={vault.name}
+            className="w-full h-full object-cover"
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 p-6">
             <div className="flex items-center justify-between">
               <h1 className="text-3xl font-bold">{vault.name}</h1>
-              <OnlineUsers vaultId={vaultId} />
+              <div className="flex items-center gap-2">
+                <PermissionGuard requiredPermission="vault:delete">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="flex items-center gap-1"
+                    onClick={() => setDeleteDialogOpen(true)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Delete Vault</span>
+                  </Button>
+                </PermissionGuard>
+                <OnlineUsers vaultId={vaultId} />
+              </div>
             </div>
             <p className="text-muted-foreground">{vault.description}</p>
           </div>
@@ -317,21 +398,32 @@ export default function VaultPage() {
               <TabsList>
                 <TabsTrigger value="memories">Memories</TabsTrigger>
                 <TabsTrigger value="members">Members</TabsTrigger>
-                <TabsTrigger value="settings">Settings</TabsTrigger>
+                <PermissionGuard
+                  requiredAnyPermission={["vault:update", "vault:delete", "vault:manage_members"]}
+                  fallback={
+                    <TabsTrigger value="settings" disabled>
+                      Settings
+                    </TabsTrigger>
+                  }
+                >
+                  <TabsTrigger value="settings">Settings</TabsTrigger>
+                </PermissionGuard>
               </TabsList>
 
               <TabsContent value="memories" className="mt-6 overflow-auto">
                 {/* Admin Approval Panel */}
-                {isAdmin && pendingMemories.length > 0 && (
-                  <div className="mb-8">
-                    <PendingMemoriesPanel
-                      vaultId={vaultId}
-                      pendingMemories={pendingMemories}
-                      onApprove={handleApproveMemory}
-                      onReject={handleRejectMemory}
-                    />
-                  </div>
-                )}
+                <PermissionGuard requiredPermission="memory:approve">
+                  {pendingMemories.length > 0 && (
+                    <div className="mb-8">
+                      <PendingMemoriesPanel
+                        vaultId={vaultId}
+                        pendingMemories={pendingMemories}
+                        onApprove={handleApproveMemory}
+                        onReject={handleRejectMemory}
+                      />
+                    </div>
+                  )}
+                </PermissionGuard>
 
                 {/* Rejected Memories Panel (for the current user) */}
                 {rejectedMemories.length > 0 && (
@@ -346,7 +438,7 @@ export default function VaultPage() {
                 )}
 
                 {/* Content Approval Notice */}
-                {vault.settings?.requireApproval && !isAdmin && (
+                {vault.settings?.requireApproval && !hasPermission("memory:approve") && (
                   <Alert className="mb-6">
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>Content Approval Required</AlertTitle>
@@ -358,10 +450,12 @@ export default function VaultPage() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-4 mb-6">
-                  <Button onClick={() => setUploadDialogOpen(true)}>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Upload Memory
-                  </Button>
+                  <PermissionGuard requiredPermission="memory:create">
+                    <Button onClick={() => setUploadDialogOpen(true)}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload Memory
+                    </Button>
+                  </PermissionGuard>
 
                   <div className="flex items-center gap-2 ml-auto">
                     <div className="flex items-center gap-2 mr-4">
@@ -401,7 +495,7 @@ export default function VaultPage() {
                       </Button>
                     </div>
 
-                    {isAdmin && (
+                    <PermissionGuard requiredPermission="memory:approve">
                       <div className="flex items-center gap-2 mr-4">
                         <Button
                           variant={filterStatus === "approved" ? "default" : "outline"}
@@ -425,7 +519,7 @@ export default function VaultPage() {
                           Rejected
                         </Button>
                       </div>
-                    )}
+                    </PermissionGuard>
 
                     <Button
                       variant={viewMode === "grid" ? "default" : "outline"}
@@ -448,15 +542,25 @@ export default function VaultPage() {
 
                 {filteredMemories.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-4 py-12">
-                    <p className="text-muted-foreground">
-                      {filterType === "all"
-                        ? "No memories in this vault yet."
-                        : `No ${filterType} memories in this vault yet.`}
-                    </p>
-                    <Button onClick={() => setUploadDialogOpen(true)}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Upload Your First Memory
-                    </Button>
+                    {memories.length === 0 ? (
+                      <div className="w-full max-w-4xl mx-auto">
+                        <SampleContentGallery />
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-muted-foreground">
+                          {filterType === "all"
+                            ? "No memories in this vault yet."
+                            : `No ${filterType} memories in this vault yet.`}
+                        </p>
+                        <PermissionGuard requiredPermission="memory:create">
+                          <Button onClick={() => setUploadDialogOpen(true)}>
+                            <Plus className="mr-2 h-4 w-4" />
+                            Upload Your First Memory
+                          </Button>
+                        </PermissionGuard>
+                      </>
+                    )}
                   </div>
                 ) : viewMode === "grid" ? (
                   <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -501,14 +605,16 @@ export default function VaultPage() {
                               {getMediaTypeIcon(memory.mediaType)}
                               <span className="capitalize">{memory.mediaType}</span>
                             </Badge>
-                            {isAdmin && memory.approvalStatus !== "approved" && (
-                              <Badge
-                                className="capitalize"
-                                variant={memory.approvalStatus === "pending" ? "outline" : "destructive"}
-                              >
-                                {memory.approvalStatus}
-                              </Badge>
-                            )}
+                            <PermissionGuard requiredPermission="memory:approve">
+                              {memory.approvalStatus !== "approved" && (
+                                <Badge
+                                  className="capitalize"
+                                  variant={memory.approvalStatus === "pending" ? "outline" : "destructive"}
+                                >
+                                  {memory.approvalStatus}
+                                </Badge>
+                              )}
+                            </PermissionGuard>
                           </div>
                         </div>
                         <div className="p-4">
@@ -523,19 +629,21 @@ export default function VaultPage() {
                             </p>
                           </div>
                         </div>
-                        {(user?.id === memory.createdBy.id || isAdmin) && (
-                          <div
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteMemory(memory.id)
-                            }}
-                          >
-                            <Button size="sm" variant="destructive">
-                              Delete
-                            </Button>
-                          </div>
-                        )}
+                        <PermissionGuard requiredAnyPermission={["memory:delete"]} fallback={null}>
+                          {(user?.id === memory.createdBy.id || hasPermission("memory:delete")) && (
+                            <div
+                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteMemory(memory.id)
+                              }}
+                            >
+                              <Button size="sm" variant="destructive">
+                                Delete
+                              </Button>
+                            </div>
+                          )}
+                        </PermissionGuard>
                       </div>
                     ))}
                   </div>
@@ -575,37 +683,42 @@ export default function VaultPage() {
                                 {getMediaTypeIcon(memory.mediaType)}
                                 <span className="capitalize">{memory.mediaType}</span>
                               </Badge>
-                              {isAdmin && memory.approvalStatus !== "approved" && (
-                                <Badge
-                                  className="capitalize"
-                                  variant={memory.approvalStatus === "pending" ? "outline" : "destructive"}
-                                >
-                                  {memory.approvalStatus}
-                                </Badge>
-                              )}
+                              <PermissionGuard requiredPermission="memory:approve">
+                                {memory.approvalStatus !== "approved" && (
+                                  <Badge
+                                    className="capitalize"
+                                    variant={memory.approvalStatus === "pending" ? "outline" : "destructive"}
+                                  >
+                                    {memory.approvalStatus}
+                                  </Badge>
+                                )}
+                              </PermissionGuard>
                             </div>
                             {memory.description && (
                               <p className="mt-1 text-sm text-muted-foreground">{memory.description}</p>
                             )}
-                            <div className="mt-2 flex items-center gap-4">
+                            <div className="mt-2 flex items-center justify-between">
                               <p className="text-xs text-muted-foreground">by {memory.createdBy.name}</p>
                               <p className="text-xs text-muted-foreground">
                                 {new Date(memory.createdAt).toLocaleDateString()}
                               </p>
                             </div>
                           </div>
-                          {(user?.id === memory.createdBy.id || isAdmin) && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteMemory(memory.id)
-                              }}
-                            >
-                              Delete
-                            </Button>
-                          )}
+                          <PermissionGuard requiredAnyPermission={["memory:delete"]} fallback={null}>
+                            {(user?.id === memory.createdBy.id || hasPermission("memory:delete")) && (
+                              <div
+                                className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteMemory(memory.id)
+                                }}
+                              >
+                                <Button size="sm" variant="destructive">
+                                  Delete
+                                </Button>
+                              </div>
+                            )}
+                          </PermissionGuard>
                         </div>
                       ))}
                   </div>
@@ -613,36 +726,25 @@ export default function VaultPage() {
               </TabsContent>
 
               <TabsContent value="members" className="mt-6">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-medium">Vault Members</h3>
-                    <Button variant="outline">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Invite Member
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
+                <div className="space-y-6">
+                  <h2 className="text-xl font-semibold">Vault Members</h2>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {vault.members.map((member) => (
-                      <div key={member.userId} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`h-2 w-2 rounded-full ${
-                              member.userId === user?.id ? "bg-green-500" : "bg-gray-300"
-                            }`}
-                          />
-                          <div>
-                            <p className="font-medium">{member.name}</p>
-                            <p className="text-sm text-muted-foreground">{member.email}</p>
-                          </div>
+                      <div key={member.userId} className="flex items-center gap-4 p-4 border rounded-lg">
+                        <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center">
+                          <span className="font-medium text-rose-500">{member.name.substring(0, 2).toUpperCase()}</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`px-2 py-1 text-xs rounded-full ${
-                              member.role === "admin" ? "bg-rose-100 text-rose-800" : "bg-gray-100 text-gray-800"
-                            }`}
-                          >
-                            {member.role}
-                          </span>
+                        <div>
+                          <p className="font-medium">{member.name}</p>
+                          <p className="text-sm text-muted-foreground">{member.email}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant={member.role === "admin" ? "default" : "outline"}>
+                              {member.role === "admin" ? "Admin" : "Member"}
+                            </Badge>
+                            <p className="text-xs text-muted-foreground">
+                              Joined {new Date(member.joinedAt).toLocaleDateString()}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -651,56 +753,52 @@ export default function VaultPage() {
               </TabsContent>
 
               <TabsContent value="settings" className="mt-6">
-                <div className="space-y-6">
-                  {isAdmin ? (
-                    <>
-                      <VaultSettings vault={vault} onUpdate={handleUpdateVault} />
-
-                      <div className="border-t pt-6">
-                        <h3 className="text-lg font-medium mb-4 text-destructive">Danger Zone</h3>
-                        <div className="space-y-4">
-                          <div className="p-4 border border-destructive rounded-lg">
-                            <h4 className="font-medium">Delete Vault</h4>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              Once you delete a vault, there is no going back. Please be certain.
-                            </p>
-                            <Button variant="destructive" className="mt-3">
-                              Delete Vault
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <p className="text-muted-foreground">Only vault admins can modify settings.</p>
-                    </div>
-                  )}
-                </div>
+                <PermissionGuard
+                  requiredAnyPermission={["vault:update", "vault:delete", "vault:manage_members"]}
+                  fallback={
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Access Denied</AlertTitle>
+                      <AlertDescription>You don't have permission to access vault settings.</AlertDescription>
+                    </Alert>
+                  }
+                >
+                  <VaultSettings vault={vault} onUpdate={handleUpdateVault} />
+                </PermissionGuard>
               </TabsContent>
             </Tabs>
           </div>
+
           <div className="mt-8">
             <ActivityFeed vaultId={vaultId} />
           </div>
         </div>
       </main>
 
-      {/* Memory Viewer */}
-      <MemoryViewer
-        isOpen={viewerOpen}
-        onClose={() => setViewerOpen(false)}
-        memory={selectedMemory}
-        memories={filteredMemories}
-      />
+      <PermissionGuard requiredPermission="memory:create">
+        <UploadMemoryDialog
+          open={uploadDialogOpen}
+          onOpenChange={setUploadDialogOpen}
+          vaultId={vaultId}
+          vault={vault}
+          onUpload={handleUpload}
+        />
+      </PermissionGuard>
 
-      {/* Upload Memory Dialog */}
-      <UploadMemoryDialog
-        vaultId={vaultId}
-        vault={vault}
-        open={uploadDialogOpen}
-        onOpenChange={setUploadDialogOpen}
-        onUpload={handleUpload}
+      {selectedMemory && (
+        <MemoryViewer
+          isOpen={viewerOpen}
+          onClose={() => setViewerOpen(false)}
+          memory={selectedMemory}
+          memories={memories.filter((m) => m.approvalStatus === "approved")}
+        />
+      )}
+
+      <DeleteVaultDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirmDelete={handleDeleteVault}
+        vaultName={vault.name}
       />
     </div>
   )
